@@ -1,0 +1,2 @@
+time,strategy,identifier,symbol,side,type,status,multiplier,time_in_force,asset.strike,asset.multiplier,asset.asset_type
+2021-01-04 09:30:00-05:00,MLTrader,b02f26a5151c48d28e18c00880491fba,,buy,market,new,1,gtc,0.0,1,stock
