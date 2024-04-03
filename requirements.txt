@@ -1,0 +1,5 @@
+Flask==3.0.2
+alpaca-py==0.20.1
+alpaca==1.0.0
+lumibot==3.2.15
+python-decouple==3.8
