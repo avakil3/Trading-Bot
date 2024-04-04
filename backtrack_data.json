@@ -1,1 +1,0 @@
-{"error": "You are attempting to query too many indicators in bulk (TAAPI.IO rate-limit)! Please make sure that you do not query more indicators at a time than your plan permits. This limit also includes multiple backtracks."}

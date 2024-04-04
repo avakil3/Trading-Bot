@@ -6,9 +6,9 @@ from decouple import config
 
 # INPUTS
 symbol = "AAPL"
-interval = "1min"
+interval = "60min"
 month = "2024-03"
-function = "RSI"
+function = "TIME_SERIES_INTRADAY"
 
 
 def get_data(symbol, interval, function, month=None):
@@ -21,4 +21,4 @@ def get_data(symbol, interval, function, month=None):
         json.dump(data, f)
 
 
-get_data(symbol, interval, function)
+get_data(symbol, interval, function, month)
