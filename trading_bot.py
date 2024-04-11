@@ -1,9 +1,9 @@
 from lumibot.brokers import Alpaca
-
+import pandas as pd
 from lumibot.backtesting import BacktestingBroker, PolygonDataBacktesting
 from lumibot.traders import Trader
 from lumibot.strategies.strategy import Strategy
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest
@@ -36,13 +36,20 @@ class MLTrader(Strategy):
         self.cash_at_risk = self.get_parameters()["cash_at_risk"]
         self.take_profit_percentage = 0.1
         self.stop_loss_percentage = 0.05
-
-        # returns JSON object as
-        # a dictionary
-        self.RSI_data = json.load(open("polygon_rsi_hour_data.json"))
-        self.MACD_data = json.load(open("polygon_macd_hour_data.json"))
+        self.RSI_df = self.get_backtest_data("polygon_rsi_hour_data.json")
+        self.MACD_df = self.get_backtest_data("polygon_macd_hour_data.json")
 
         self.last_order = "sell"
+
+    def get_backtest_data(self, file_name):
+        RSI_json = json.load(open(file_name))
+        # Convert JSON to DataFrame
+        df = pd.DataFrame.from_dict(RSI_json, orient="index")[::-1]
+        # Reset index to make timestamp a column
+        df.reset_index(inplace=True)
+        del df["timestamp"]  # duplicate column
+        df.rename(columns={"index": "timestamp"}, inplace=True)
+        return df
 
     def position_sizing(self):
         cash = self.get_cash()
@@ -53,19 +60,19 @@ class MLTrader(Strategy):
     def get_indicators(self, date_time, backTest):
         if backTest:
             # Edit the format of the Timestamp to match with backtest data
-            ts = str(datetime.timestamp(date_time))[:-2] + "000"
+            cur_ts = str(datetime.timestamp(date_time))[:-2] + "000"
             # Retrieve CURRENT RSI data
-            cur_rsi = self.RSI_data[ts]["value"] if ts in self.RSI_data else None
+            cur_rsi = self.RSI_df.loc[self.RSI_df.timestamp == cur_ts]
             # Retrieve CURRENT MACD data
-            cur_macd = {
-                "value": self.MACD_data[ts]["value"] if ts in self.MACD_data else None,
-                "signal": (
-                    self.MACD_data[ts]["signal"] if ts in self.MACD_data else None
-                ),
-            }
+            cur_macd = self.MACD_df.loc[self.MACD_df.timestamp == cur_ts]
 
-            prev_rsi = 
-            return cur_rsi, cur_macd
+            cur_rsi = self.RSI_df.loc[self.RSI_df.timestamp == cur_ts]
+
+            # Retrieve PAST PERIOD's indicator data
+            prev_rsi = self.RSI_df.loc[cur_rsi.index - 1]
+            prev_macd = self.MACD_df.loc[cur_macd.index - 1]
+
+            return cur_rsi, cur_macd, prev_rsi, prev_macd
 
         # real time trading here
         # make API calls here
@@ -80,40 +87,73 @@ class MLTrader(Strategy):
             date_time, backTest=True
         )
 
-        print("cur_rsi", cur_rsi)
-        print("cur_macd", cur_macd)
+        if cur_rsi.empty or cur_macd.empty or prev_rsi.empty or prev_macd.empty:
+            print("INDICATOR DATA NOT FOUND: SKIPPING TRADE ITERATION")
+            return
+        """
+        1. cur RSI < 30
+        2. curMACD < 0 and  curMACD.value > curMACD.signal
+        3. prevMACD.value < prevMACD.signal
+        """
 
-        # if date_time not in self.RSI_data:
-        #     return  # DO NOTHING
+        # print("cur_rsi.value < 30: ", cur_rsi.value < 30)
+        # print("cur_macd.value < 0: ", cur_macd.value < 0)
+        # print("cur_macd.value > cur_macd.signal: ", cur_macd.value > cur_macd.signal)
+        # print("prev_macd.value < cur_macd.signal:  ", prev_macd.value < cur_macd.signal)
+        # BUY SIGNAL
+        # print(
+        #     cur_rsi.value < 30,
+        #     cur_macd.value < 0,
+        #     cur_macd.value > cur_macd.signal,
+        #     prev_macd.value < cur_macd.signal,
+        # )
+        print(prev_macd.value)
+        print(cur_macd.signal)
+        print(prev_macd.value < cur_macd.signal)
 
-        # if RSI_val < 30:
+        if (
+            cur_rsi.value < 30
+            and cur_macd.value < 0
+            and cur_macd.value > cur_macd.signal
+            and prev_macd.value < cur_macd.signal
+        ):
 
-        #     cash, last_price, quantity = self.position_sizing()
-        #     print("\n")
-        #     print(date_time, last_price)
+            print("HEREEEE")
+            cash, last_price, quantity = self.position_sizing()
 
-        #     if cash > last_price and self.last_order == "sell":
-        #         order = self.create_order(
-        #             self.symbol,
-        #             quantity,
-        #             "buy",
-        #             type="bracket",
-        #             # take_profit_price=last_price * (1 + self.take_profit_percentage),
-        #             stop_loss_price=last_price * (1 - self.stop_loss_percentage),
-        #             time_in_force="day",
-        #         )
-        #         self.submit_order(order)
-        #         self.last_order = "buy"
-        #         print(f"----------------MADE A TRADE-----------")
-        #         print("RSI", RSI_val)
-        #         print("DATE: " + date_time)
+            if cash > last_price and self.last_order == "sell":
+                order = self.create_order(
+                    self.symbol,
+                    quantity,
+                    "buy",
+                    type="bracket",
+                    # take_profit_price=last_price * (1 + self.take_profit_percentage),
+                    stop_loss_price=last_price * (1 - self.stop_loss_percentage),
+                    time_in_force="day",
+                )
+                self.submit_order(order)
+                self.last_order = "buy"
+                print(f"----------------MADE A TRADE-----------")
+                print("RSI", cur_rsi.value)
+                print("DATE: " + date_time)
 
-        # elif RSI_val > 65 and self.last_order == "buy":
-        #     print(f"----------------SOLD POSITION-----------")
-        #     print("RSI", RSI_val)
-        #     print("DATE: " + date_time)
-        #     self.sell_all()
-        #     self.last_order = "sell"
+        elif (
+            cur_rsi.value > 70
+            or cur_macd.histogram < 0
+            or (cur_macd.value < cur_macd.signal and prev_macd.value > prev_macd.signal)
+            and self.last_order == "buy"
+        ):
+            """
+            SELL STRATEGY
+            1. RSI value > 70
+            2. MACD histogram < 0
+            3. curMACD value < cur MACD Signal AND prevMACD value > prev MACD signal
+            """
+            print(f"----------------SOLD POSITION-----------")
+            print("RSI", cur_rsi.value)
+            print("DATE: " + date_time)
+            self.sell_all()
+            self.last_order = "sell"
 
 
 # trader = TradingClient(
@@ -145,7 +185,7 @@ class MLTrader(Strategy):
 
 def backtesting():
     start_date = datetime(2024, 3, 1)
-    end_date = datetime(2024, 3, 2)
+    end_date = datetime(2024, 3, 10)
 
     polygon_data_source = PolygonDataBacktesting(
         datetime_start=start_date,
@@ -161,8 +201,6 @@ def backtesting():
     trader = Trader(backtest=True)
     trader.add_strategy(strategy)
     trader.run_all()
-
-    # strategy.backtest(polygon_data_source, start_date, end_date, benchmark_asset="SPY")
 
 
 if __name__ == "__main__":
